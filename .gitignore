@@ -249,3 +249,4 @@ Taskfile.gen.yaml
 .datarobot/cli/state.yaml
 
 .history/
+.github/workflows/
