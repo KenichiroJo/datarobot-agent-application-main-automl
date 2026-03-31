@@ -1,4 +1,4 @@
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren, useEffect } from 'react';
 import { v4 as uuid } from 'uuid';
 import z from 'zod/v4';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
@@ -106,6 +106,15 @@ export function ChatImplementation({ chatId }: { chatId: string }) {
   });
 
   const { scrollContainerRef, onChatScroll } = useChatScroll({ chatId, events: combinedEvents });
+
+  // Auto-send pending message from ContentPage letter buttons
+  useEffect(() => {
+    const pending = sessionStorage.getItem('pendingChatMessage');
+    if (pending && !isAgentRunning && !isLoadingHistory) {
+      sessionStorage.removeItem('pendingChatMessage');
+      sendMessage(pending);
+    }
+  }, [isLoadingHistory]);
 
   // Example for a custom UI widget
   //

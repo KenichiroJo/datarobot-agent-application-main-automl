@@ -95,7 +95,17 @@ class DataRobotClient:
             }
             for pt in roc.roc_points
         ]
-        return {"auc": roc.auc, "source": source, "rocPoints": roc_points}
+        # Compute AUC via trapezoidal rule (roc.auc may not exist)
+        auc_value = getattr(roc, "auc", None)
+        if auc_value is None:
+            sorted_pts = sorted(roc.roc_points, key=lambda p: p["false_positive_rate"])
+            fprs = [p["false_positive_rate"] for p in sorted_pts]
+            tprs = [p["true_positive_rate"] for p in sorted_pts]
+            auc_value = sum(
+                (fprs[i + 1] - fprs[i]) * (tprs[i + 1] + tprs[i]) / 2
+                for i in range(len(fprs) - 1)
+            )
+        return {"auc": round(auc_value, 6), "source": source, "rocPoints": roc_points}
 
     def get_lift_chart(
         self, project_id: str, model_id: str, source: str = "validation"
@@ -128,10 +138,22 @@ class DataRobotClient:
             key=lambda pt: abs(pt["threshold"] - threshold),
         )
 
+        # Try count fields first; fall back to computing from rates
         tp = closest_point.get("true_positive_count", 0)
         fp = closest_point.get("false_positive_count", 0)
         tn = closest_point.get("true_negative_count", 0)
         fn = closest_point.get("false_negative_count", 0)
+
+        if tp + fp + tn + fn == 0:
+            # Compute from rates + class counts on the RocCurve object
+            pos = getattr(roc, "positive_class_predictions", 0) or 0
+            neg = getattr(roc, "negative_class_predictions", 0) or 0
+            tpr = closest_point.get("true_positive_rate", 0)
+            fpr = closest_point.get("false_positive_rate", 0)
+            tp = round(tpr * pos)
+            fn = pos - tp
+            fp = round(fpr * neg)
+            tn = neg - fp
 
         total = tp + fp + tn + fn
         accuracy = (tp + tn) / total if total > 0 else 0
@@ -172,7 +194,7 @@ class DataRobotClient:
         self, project_id: str, model_id: str, feature_name: str
     ) -> dict[str, Any]:
         model = self._get_model(project_id, model_id)
-        fe = model.get_or_request_feature_effect()
+        fe = model.get_or_request_feature_effect(source="validation")
 
         for item in fe.feature_effects:
             if item["feature_name"] == feature_name:
@@ -196,7 +218,7 @@ class DataRobotClient:
         self, project_id: str, model_id: str, feature_name: str
     ) -> dict[str, Any]:
         model = self._get_model(project_id, model_id)
-        fe = model.get_or_request_feature_effect()
+        fe = model.get_or_request_feature_effect(source="validation")
 
         for item in fe.feature_effects:
             if item["feature_name"] == feature_name:

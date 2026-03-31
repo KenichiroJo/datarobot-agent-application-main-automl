@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CustomerSelector } from '@/components/content/CustomerSelector';
 import { PredictionCard } from '@/components/content/PredictionCard';
@@ -17,6 +18,7 @@ export function ContentPage() {
   const { data: config } = useAppConfig();
   const deploymentId = config?.deploymentId ?? '';
   const datasetId = config?.datasetId ?? '';
+  const navigate = useNavigate();
 
   const { data: records, isLoading: loadingRecords } = useDatasetRecords(datasetId);
   const predictionMutation = useCreatePrediction();
@@ -101,7 +103,11 @@ export function ContentPage() {
             {['承認レター作成', '却下レター作成', '社内審査コメント作成'].map((label) => (
               <button
                 key={label}
-                onClick={() => handleChatSend(`${label}してください（予測結果: ${prediction.prediction}, 確率: ${(prediction.predictionProbability * 100).toFixed(1)}%）`)}
+                onClick={() => {
+                  const msg = `${label}してください（予測結果: ${prediction.prediction}, 確率: ${(prediction.predictionProbability * 100).toFixed(1)}%、顧客データ: ${JSON.stringify(selectedRecord)}）`;
+                  sessionStorage.setItem('pendingChatMessage', msg);
+                  navigate('/chat');
+                }}
                 className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/30 hover:shadow-sm transition-all"
               >
                 <span className="text-sm font-medium text-foreground">{label}</span>
