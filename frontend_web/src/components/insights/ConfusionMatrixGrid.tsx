@@ -4,9 +4,11 @@ import type { ConfusionMatrixResponse } from '@/api/insights/types';
 interface Props {
   data?: ConfusionMatrixResponse;
   loading?: boolean;
+  threshold?: number;
+  onThresholdChange?: (threshold: number) => void;
 }
 
-export function ConfusionMatrixGrid({ data, loading }: Props) {
+export function ConfusionMatrixGrid({ data, loading, threshold, onThresholdChange }: Props) {
   if (!data) return <ChartCard title="Confusion Matrix" loading={loading}><div /></ChartCard>;
 
   const [[tn, fp], [fn, tp]] = data.matrix;
@@ -22,9 +24,26 @@ export function ConfusionMatrixGrid({ data, loading }: Props) {
   return (
     <ChartCard
       title="Confusion Matrix"
-      subtitle={`Threshold: ${data.threshold.toFixed(2)}`}
+      subtitle={`Threshold: ${data.threshold.toFixed(3)}`}
       loading={loading}
     >
+      {onThresholdChange && (
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">閾値:</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={threshold ?? data.threshold}
+            onChange={(e) => onThresholdChange(parseFloat(e.target.value))}
+            className="flex-1 h-1.5 accent-primary cursor-pointer"
+          />
+          <span className="text-xs font-mono text-foreground w-10 text-right">
+            {(threshold ?? data.threshold).toFixed(2)}
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto mb-4">
         {cells.map((c) => (
           <div key={c.label} className={`${c.bg} rounded-lg p-4 text-center`}>

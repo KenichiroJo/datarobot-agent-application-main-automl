@@ -4,6 +4,7 @@ from typing import Any
 
 import datarobot as dr
 import pandas as pd
+import requests as http_requests
 from datarobot.models.deployment.deployment import Deployment
 from datarobot_predict.deployment import (
     PredictionResult,
@@ -21,6 +22,13 @@ class DataRobotClient:
         self._endpoint = endpoint
         self._token = token
         dr.Client(endpoint=endpoint, token=token)
+
+    def _api_get(self, path: str) -> Any:
+        """Direct REST API call to DataRobot."""
+        url = f"{self._endpoint}/{path.lstrip('/')}"
+        resp = http_requests.get(url, headers={"Authorization": f"Bearer {self._token}"})
+        resp.raise_for_status()
+        return resp.json()
 
     def _get_deployment(self, deployment_id: str) -> Deployment:
         return dr.Deployment.get(deployment_id)
@@ -129,31 +137,56 @@ class DataRobotClient:
         threshold: float = 0.5,
         source: str = "validation",
     ) -> dict[str, Any]:
-        model = self._get_model(project_id, model_id)
-        roc = model.get_roc_curve(source)
+        """Get confusion matrix by finding the closest threshold in the ROC data."""
+        try:
+            # Use REST API directly for reliable access to count fields
+            data = self._api_get(
+                f"projects/{project_id}/models/{model_id}/rocCurve/{source}/"
+            )
+            roc_points = data.get("rocPoints", [])
+        except Exception:
+            # Fallback to SDK
+            model = self._get_model(project_id, model_id)
+            roc = model.get_roc_curve(source)
+            roc_points = roc.roc_points
+
+        if not roc_points:
+            return {
+                "threshold": threshold,
+                "source": source,
+                "classes": ["0", "1"],
+                "matrix": [[0, 0], [0, 0]],
+                "metrics": {"accuracy": 0, "precision": 0, "recall": 0, "f1": 0},
+            }
 
         # Find the closest threshold point
-        closest_point = min(
-            roc.roc_points,
-            key=lambda pt: abs(pt["threshold"] - threshold),
-        )
+        closest = min(roc_points, key=lambda pt: abs(pt.get("threshold", 0) - threshold))
 
-        # Try count fields first; fall back to computing from rates
-        tp = closest_point.get("true_positive_count", 0)
-        fp = closest_point.get("false_positive_count", 0)
-        tn = closest_point.get("true_negative_count", 0)
-        fn = closest_point.get("false_negative_count", 0)
+        # Extract counts - REST API uses camelCase keys
+        tp = closest.get("truePositiveCount", closest.get("true_positive_count", 0)) or 0
+        fp = closest.get("falsePositiveCount", closest.get("false_positive_count", 0)) or 0
+        tn = closest.get("trueNegativeCount", closest.get("true_negative_count", 0)) or 0
+        fn = closest.get("falseNegativeCount", closest.get("false_negative_count", 0)) or 0
 
+        # If counts are still 0, compute from rates
         if tp + fp + tn + fn == 0:
-            # Compute from rates + class counts on the RocCurve object
-            pos = getattr(roc, "positive_class_predictions", 0) or 0
-            neg = getattr(roc, "negative_class_predictions", 0) or 0
-            tpr = closest_point.get("true_positive_rate", 0)
-            fpr = closest_point.get("false_positive_rate", 0)
-            tp = round(tpr * pos)
-            fn = pos - tp
-            fp = round(fpr * neg)
-            tn = neg - fp
+            pos_total = (
+                data.get("positiveClassPredictions", 0)
+                if isinstance(data, dict)
+                else 0
+            ) or 0
+            neg_total = (
+                data.get("negativeClassPredictions", 0)
+                if isinstance(data, dict)
+                else 0
+            ) or 0
+            tpr = closest.get("truePositiveRate", closest.get("true_positive_rate", 0)) or 0
+            fpr = closest.get("falsePositiveRate", closest.get("false_positive_rate", 0)) or 0
+            if pos_total or neg_total:
+                tp = round(tpr * pos_total)
+                fn = pos_total - tp
+                fp = round(fpr * neg_total)
+                tn = neg_total - fp
 
         total = tp + fp + tn + fn
         accuracy = (tp + tn) / total if total > 0 else 0
@@ -162,7 +195,7 @@ class DataRobotClient:
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
 
         return {
-            "threshold": closest_point["threshold"],
+            "threshold": closest.get("threshold", threshold),
             "source": source,
             "classes": ["0", "1"],
             "matrix": [[tn, fp], [fn, tp]],
@@ -193,18 +226,27 @@ class DataRobotClient:
     def get_feature_effects(
         self, project_id: str, model_id: str, feature_name: str
     ) -> dict[str, Any]:
-        model = self._get_model(project_id, model_id)
-        fe = model.get_or_request_feature_effect(source="validation")
+        """Get feature effects using REST API with SDK fallback."""
+        feature_effects_list = self._fetch_feature_effects(project_id, model_id)
 
-        for item in fe.feature_effects:
-            if item["feature_name"] == feature_name:
-                pd_data = [
-                    {"label": str(pt["label"]), "dependence": pt["partial_dependence"]}
-                    for pt in item["partial_dependence"]["data"]
-                ]
+        for item in feature_effects_list:
+            fname = item.get("featureName", item.get("feature_name", ""))
+            if fname == feature_name:
+                pd_raw = item.get("partialDependence", item.get("partial_dependence", {}))
+                if isinstance(pd_raw, dict):
+                    raw_data = pd_raw.get("data", [])
+                elif isinstance(pd_raw, list):
+                    raw_data = pd_raw
+                else:
+                    raw_data = []
+                pd_data = []
+                for pt in raw_data:
+                    label = pt.get("label", pt.get("value", ""))
+                    dep = pt.get("partialDependence", pt.get("partial_dependence", pt.get("dependence", 0)))
+                    pd_data.append({"label": str(label), "dependence": dep})
                 return {
                     "featureName": feature_name,
-                    "featureType": item.get("feature_type", "unknown"),
+                    "featureType": item.get("featureType", item.get("feature_type", "unknown")),
                     "partialDependence": pd_data,
                 }
 
@@ -214,24 +256,81 @@ class DataRobotClient:
             "partialDependence": [],
         }
 
+    def _fetch_feature_effects(self, project_id: str, model_id: str) -> list[dict]:
+        """Try REST API first, then SDK, to fetch feature effects."""
+        # Attempt 1: REST API
+        for source in ("validation", "crossValidation", "holdout"):
+            try:
+                data = self._api_get(
+                    f"projects/{project_id}/models/{model_id}/featureEffects/{source}/"
+                )
+                effects = data.get("featureEffects", [])
+                if effects:
+                    return effects
+            except Exception:
+                continue
+
+        # Attempt 2: Request computation then fetch
+        try:
+            url = f"{self._endpoint}/projects/{project_id}/models/{model_id}/featureEffects/"
+            http_requests.post(
+                url, headers={"Authorization": f"Bearer {self._token}"},
+                json={"rowCount": 10},
+            )
+            # Wait a moment and re-fetch
+            import time
+            time.sleep(3)
+            for source in ("validation", "crossValidation", "holdout"):
+                try:
+                    data = self._api_get(
+                        f"projects/{project_id}/models/{model_id}/featureEffects/{source}/"
+                    )
+                    effects = data.get("featureEffects", [])
+                    if effects:
+                        return effects
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning("Feature effects REST fallback failed: %s", e)
+
+        # Attempt 3: SDK
+        try:
+            model = self._get_model(project_id, model_id)
+            for src in ("validation", "crossValidation", "holdout"):
+                try:
+                    fe = model.get_or_request_feature_effect(source=src)
+                    if hasattr(fe, "feature_effects") and fe.feature_effects:
+                        return fe.feature_effects
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning("Feature effects SDK fallback failed: %s", e)
+
+        return []
+
     def get_partial_dependence(
         self, project_id: str, model_id: str, feature_name: str
     ) -> dict[str, Any]:
-        model = self._get_model(project_id, model_id)
-        fe = model.get_or_request_feature_effect(source="validation")
+        feature_effects_list = self._fetch_feature_effects(project_id, model_id)
 
-        for item in fe.feature_effects:
-            if item["feature_name"] == feature_name:
-                data = [
-                    {
-                        "value": pt["label"],
-                        "meanPrediction": pt["partial_dependence"],
-                    }
-                    for pt in item["partial_dependence"]["data"]
-                ]
+        for item in feature_effects_list:
+            fname = item.get("featureName", item.get("feature_name", ""))
+            if fname == feature_name:
+                pd_raw = item.get("partialDependence", item.get("partial_dependence", {}))
+                if isinstance(pd_raw, dict):
+                    raw_data = pd_raw.get("data", [])
+                elif isinstance(pd_raw, list):
+                    raw_data = pd_raw
+                else:
+                    raw_data = []
+                data = []
+                for pt in raw_data:
+                    val = pt.get("label", pt.get("value", ""))
+                    dep = pt.get("partialDependence", pt.get("partial_dependence", pt.get("meanPrediction", 0)))
+                    data.append({"value": val, "meanPrediction": dep})
                 return {
                     "featureName": feature_name,
-                    "featureType": item.get("feature_type", "unknown"),
+                    "featureType": item.get("featureType", item.get("feature_type", "unknown")),
                     "data": data,
                 }
 

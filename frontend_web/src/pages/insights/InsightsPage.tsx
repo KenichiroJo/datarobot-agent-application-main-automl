@@ -25,7 +25,9 @@ export function InsightsPage() {
   const { data: featureImpact, isLoading: loadingFI } = useFeatureImpact(deploymentId);
   const { data: roc, isLoading: loadingROC } = useROCCurve(deploymentId);
   const { data: lift, isLoading: loadingLift } = useLiftChart(deploymentId);
-  const { data: confusion, isLoading: loadingCM } = useConfusionMatrix(deploymentId);
+
+  const [cmThreshold, setCmThreshold] = useState(0.5);
+  const { data: confusion, isLoading: loadingCM } = useConfusionMatrix(deploymentId, cmThreshold);
 
   const [selectedFeature, setSelectedFeature] = useState('');
   const { data: featureEffects, isLoading: loadingFE } = useFeatureEffects(
@@ -35,6 +37,10 @@ export function InsightsPage() {
 
   const handleFeatureClick = useCallback((featureName: string) => {
     setSelectedFeature(featureName);
+  }, []);
+
+  const handleThresholdSelect = useCallback((threshold: number) => {
+    setCmThreshold(threshold);
   }, []);
 
   return (
@@ -61,9 +67,19 @@ export function InsightsPage() {
           {/* Main Charts - 2x2 Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <FeatureImpactChart data={featureImpact} loading={loadingFI} />
-            <ROCCurveChart data={roc} loading={loadingROC} />
+            <ROCCurveChart
+              data={roc}
+              loading={loadingROC}
+              selectedThreshold={cmThreshold}
+              onThresholdSelect={handleThresholdSelect}
+            />
             <LiftChartComponent data={lift} loading={loadingLift} />
-            <ConfusionMatrixGrid data={confusion} loading={loadingCM} />
+            <ConfusionMatrixGrid
+              data={confusion}
+              loading={loadingCM}
+              threshold={cmThreshold}
+              onThresholdChange={handleThresholdSelect}
+            />
           </div>
 
           {/* Feature Deep Dive */}
