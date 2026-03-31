@@ -51,11 +51,6 @@ export function ROCCurveChart({ data, loading, selectedThreshold, onThresholdSel
         <LineChart
           data={points}
           margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-          onClick={(e) => {
-            if (e?.activePayload?.[0]?.payload && onThresholdSelect) {
-              onThresholdSelect(e.activePayload[0].payload.threshold);
-            }
-          }}
           style={{ cursor: onThresholdSelect ? 'crosshair' : 'default' }}
         >
           <CartesianGrid strokeDasharray="3 3" />
@@ -74,11 +69,6 @@ export function ROCCurveChart({ data, loading, selectedThreshold, onThresholdSel
             tickFormatter={(v) => v.toFixed(1)}
           />
           <Tooltip
-            formatter={(value: number, name: string) => {
-              if (name === 'tpr') return [value.toFixed(4), 'TPR'];
-              return [value.toFixed(4)];
-            }}
-            labelFormatter={(label: number) => `FPR: ${label.toFixed(4)}`}
             content={({ payload }) => {
               if (!payload?.[0]) return null;
               const pt = payload[0].payload;
@@ -87,6 +77,9 @@ export function ROCCurveChart({ data, loading, selectedThreshold, onThresholdSel
                   <div>Threshold: <strong>{pt.threshold.toFixed(4)}</strong></div>
                   <div>FPR: {pt.fpr.toFixed(4)}</div>
                   <div>TPR: {pt.tpr.toFixed(4)}</div>
+                  {onThresholdSelect && (
+                    <div className="text-primary mt-1 font-medium">クリックで閾値設定</div>
+                  )}
                 </div>
               );
             }}
@@ -102,7 +95,18 @@ export function ROCCurveChart({ data, loading, selectedThreshold, onThresholdSel
             stroke="#2563eb"
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 5, fill: '#2563eb', stroke: '#fff', strokeWidth: 2 }}
+            activeDot={{
+              r: 6,
+              fill: '#2563eb',
+              stroke: '#fff',
+              strokeWidth: 2,
+              cursor: 'pointer',
+              onClick: (_e: any, payload: any) => {
+                if (onThresholdSelect && payload?.payload?.threshold != null) {
+                  onThresholdSelect(payload.payload.threshold);
+                }
+              },
+            }}
           />
           {selectedPoint && (
             <ReferenceLine

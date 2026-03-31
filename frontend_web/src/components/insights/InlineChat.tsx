@@ -1,14 +1,7 @@
 import { useState, useRef, useEffect, FormEvent, useCallback } from 'react';
 import { v4 as uuid } from 'uuid';
 import { MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
-import { createAgent } from '@/lib/agent';
-import type { HttpAgent } from '@ag-ui/client';
-import type {
-  TextMessageStartEvent,
-  TextMessageContentEvent,
-  RunErrorEvent,
-} from '@ag-ui/core';
-import type { AgentSubscriberParams } from '@ag-ui/client';
+import { AG_UI_ENDPOINT } from '@/constants/endpoints';
 
 interface Message {
   id: string;
@@ -22,13 +15,8 @@ export function InlineChat() {
   const [isRunning, setIsRunning] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const agentRef = useRef<HttpAgent | null>(null);
   const threadIdRef = useRef(uuid());
-  const bufferRef = useRef('');
-
-  useEffect(() => {
-    agentRef.current = createAgent({ threadId: threadIdRef.current });
-  }, []);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -42,60 +30,96 @@ export function InlineChat() {
       setMessages((prev) => [...prev, userMsg]);
       setInput('');
       setIsRunning(true);
-      bufferRef.current = '';
-
-      // Create a fresh agent per message
-      const agent = createAgent({ threadId: threadIdRef.current });
-      agentRef.current = agent;
-      agent.messages = [{ id: uuid(), role: 'user', content: text }];
 
       const assistantId = uuid();
+      const threadId = threadIdRef.current;
+      const runId = uuid();
 
-      const { unsubscribe } = agent.subscribe({
-        onTextMessageStartEvent(_params: { event: TextMessageStartEvent } & AgentSubscriberParams) {
-          bufferRef.current = '';
-          setMessages((prev) => [
-            ...prev,
-            { id: assistantId, role: 'assistant', content: '' },
-          ]);
-        },
-        onTextMessageContentEvent(
-          params: { event: TextMessageContentEvent; textMessageBuffer: string } & AgentSubscriberParams,
-        ) {
-          bufferRef.current = params.textMessageBuffer;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: params.textMessageBuffer } : m,
-            ),
-          );
-        },
-        onTextMessageEndEvent() {
-          // Final update already applied by content events
-        },
-        onRunFinishedEvent() {
-          unsubscribe();
-          setIsRunning(false);
-        },
-        onRunErrorEvent(params: { event: RunErrorEvent } & AgentSubscriberParams) {
-          unsubscribe();
-          setIsRunning(false);
-          if (params.event.rawEvent?.name === 'AbortError') return;
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: uuid(),
-              role: 'assistant',
-              content: `エラーが発生しました: ${params.event.message}`,
-            },
-          ]);
-        },
-      });
+      const body = {
+        threadId,
+        runId,
+        messages: [{ id: uuid(), role: 'user', content: text }],
+        tools: [],
+        context: [],
+        forwardedProps: {},
+      };
+
+      abortRef.current = new AbortController();
 
       try {
-        await agent.runAgent({ tools: [] });
+        const resp = await fetch(AG_UI_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+          },
+          credentials: 'include',
+          body: JSON.stringify(body),
+          signal: abortRef.current.signal,
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${errText}`);
+        }
+
+        const reader = resp.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let assistantCreated = false;
+        let fullText = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const chunk of lines) {
+            for (const line of chunk.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const event = JSON.parse(line.slice(6));
+                if (event.type === 'TEXT_MESSAGE_START' || event.type === 'TextMessageStart') {
+                  if (!assistantCreated) {
+                    assistantCreated = true;
+                    setMessages((prev) => [
+                      ...prev,
+                      { id: assistantId, role: 'assistant', content: '' },
+                    ]);
+                  }
+                } else if (event.type === 'TEXT_MESSAGE_CONTENT' || event.type === 'TextMessageContent') {
+                  const delta = event.delta ?? event.content ?? '';
+                  fullText += delta;
+                  const captured = fullText;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId ? { ...m, content: captured } : m,
+                    ),
+                  );
+                }
+              } catch {
+                // skip unparseable lines
+              }
+            }
+          }
+        }
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
-        console.error(err);
+        console.error('InlineChat error:', err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: uuid(),
+            role: 'assistant',
+            content: `エラーが発生しました: ${err?.message || 'Unknown error'}`,
+          },
+        ]);
+      } finally {
         setIsRunning(false);
       }
     },

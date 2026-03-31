@@ -25,7 +25,8 @@ class DataRobotClient:
 
     def _api_get(self, path: str) -> Any:
         """Direct REST API call to DataRobot."""
-        url = f"{self._endpoint}/{path.lstrip('/')}"
+        base = self._endpoint.rstrip("/")
+        url = f"{base}/{path.strip('/')}"
         resp = http_requests.get(url, headers={"Authorization": f"Bearer {self._token}"})
         resp.raise_for_status()
         return resp.json()
@@ -138,17 +139,32 @@ class DataRobotClient:
         source: str = "validation",
     ) -> dict[str, Any]:
         """Get confusion matrix by finding the closest threshold in the ROC data."""
+        roc_points: list[dict] = []
+        pos_total = 0
+        neg_total = 0
+
+        # Try REST API first
         try:
-            # Use REST API directly for reliable access to count fields
             data = self._api_get(
-                f"projects/{project_id}/models/{model_id}/rocCurve/{source}/"
+                f"projects/{project_id}/models/{model_id}/rocCurve/{source}"
             )
             roc_points = data.get("rocPoints", [])
-        except Exception:
-            # Fallback to SDK
-            model = self._get_model(project_id, model_id)
-            roc = model.get_roc_curve(source)
-            roc_points = roc.roc_points
+            pos_total = data.get("positiveClassPredictions", 0) or 0
+            neg_total = data.get("negativeClassPredictions", 0) or 0
+            logger.info("CM REST: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
+        except Exception as e:
+            logger.warning("ROC REST API failed, trying SDK: %s", e)
+
+        # Fallback to SDK
+        if not roc_points:
+            try:
+                model = self._get_model(project_id, model_id)
+                roc = model.get_roc_curve(source)
+                roc_points = roc.roc_points
+                pos_total = getattr(roc, "positive_class_predictions", 0) or 0
+                neg_total = getattr(roc, "negative_class_predictions", 0) or 0
+            except Exception as e:
+                logger.error("ROC SDK also failed: %s", e)
 
         if not roc_points:
             return {
@@ -162,31 +178,20 @@ class DataRobotClient:
         # Find the closest threshold point
         closest = min(roc_points, key=lambda pt: abs(pt.get("threshold", 0) - threshold))
 
-        # Extract counts - REST API uses camelCase keys
+        # Extract counts - try both camelCase (REST) and snake_case (SDK)
         tp = closest.get("truePositiveCount", closest.get("true_positive_count", 0)) or 0
         fp = closest.get("falsePositiveCount", closest.get("false_positive_count", 0)) or 0
         tn = closest.get("trueNegativeCount", closest.get("true_negative_count", 0)) or 0
         fn = closest.get("falseNegativeCount", closest.get("false_negative_count", 0)) or 0
 
-        # If counts are still 0, compute from rates
-        if tp + fp + tn + fn == 0:
-            pos_total = (
-                data.get("positiveClassPredictions", 0)
-                if isinstance(data, dict)
-                else 0
-            ) or 0
-            neg_total = (
-                data.get("negativeClassPredictions", 0)
-                if isinstance(data, dict)
-                else 0
-            ) or 0
+        # Compute from rates if counts are zero
+        if tp + fp + tn + fn == 0 and (pos_total or neg_total):
             tpr = closest.get("truePositiveRate", closest.get("true_positive_rate", 0)) or 0
             fpr = closest.get("falsePositiveRate", closest.get("false_positive_rate", 0)) or 0
-            if pos_total or neg_total:
-                tp = round(tpr * pos_total)
-                fn = pos_total - tp
-                fp = round(fpr * neg_total)
-                tn = neg_total - fp
+            tp = round(tpr * pos_total)
+            fn = pos_total - tp
+            fp = round(fpr * neg_total)
+            tn = neg_total - fp
 
         total = tp + fp + tn + fn
         accuracy = (tp + tn) / total if total > 0 else 0
@@ -258,35 +263,41 @@ class DataRobotClient:
 
     def _fetch_feature_effects(self, project_id: str, model_id: str) -> list[dict]:
         """Try REST API first, then SDK, to fetch feature effects."""
-        # Attempt 1: REST API
+        base = self._endpoint.rstrip("/")
+
+        # Attempt 1: REST API GET
         for source in ("validation", "crossValidation", "holdout"):
             try:
                 data = self._api_get(
-                    f"projects/{project_id}/models/{model_id}/featureEffects/{source}/"
+                    f"projects/{project_id}/models/{model_id}/featureEffects/{source}"
                 )
                 effects = data.get("featureEffects", [])
                 if effects:
+                    logger.info("Feature effects REST GET success: %d effects for source=%s", len(effects), source)
                     return effects
-            except Exception:
+            except Exception as e:
+                logger.debug("Feature effects GET failed for source=%s: %s", source, e)
                 continue
 
         # Attempt 2: Request computation then fetch
         try:
-            url = f"{self._endpoint}/projects/{project_id}/models/{model_id}/featureEffects/"
-            http_requests.post(
+            url = f"{base}/projects/{project_id}/models/{model_id}/featureEffects"
+            resp = http_requests.post(
                 url, headers={"Authorization": f"Bearer {self._token}"},
                 json={"rowCount": 10},
             )
-            # Wait a moment and re-fetch
+            logger.info("Feature effects POST status: %s", resp.status_code)
+            # Wait and re-fetch
             import time
             time.sleep(3)
             for source in ("validation", "crossValidation", "holdout"):
                 try:
                     data = self._api_get(
-                        f"projects/{project_id}/models/{model_id}/featureEffects/{source}/"
+                        f"projects/{project_id}/models/{model_id}/featureEffects/{source}"
                     )
                     effects = data.get("featureEffects", [])
                     if effects:
+                        logger.info("Feature effects after POST: %d effects", len(effects))
                         return effects
                 except Exception:
                     continue

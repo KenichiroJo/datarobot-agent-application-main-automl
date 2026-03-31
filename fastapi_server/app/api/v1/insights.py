@@ -92,8 +92,14 @@ async def get_confusion_matrix(
     must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
-    data = client.get_confusion_matrix(project_id, model_id, threshold, source)
-    return ConfusionMatrixResponse(**data)
+    logger.info("Getting confusion matrix: project=%s model=%s threshold=%s", project_id, model_id, threshold)
+    try:
+        data = client.get_confusion_matrix(project_id, model_id, threshold, source)
+        logger.info("Confusion matrix result: %s", data)
+        return ConfusionMatrixResponse(**data)
+    except Exception as e:
+        logger.error("Confusion matrix failed: %s", e, exc_info=True)
+        raise
 
 
 @insights_router.get("/{deployment_id}/accuracy", response_model=AccuracyResponse)
@@ -119,8 +125,14 @@ async def get_feature_effects(
     must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
-    data = client.get_feature_effects(project_id, model_id, feature_name)
-    return FeatureEffectsResponse(**data)
+    logger.info("Getting feature effects: project=%s model=%s feature=%s", project_id, model_id, feature_name)
+    try:
+        data = client.get_feature_effects(project_id, model_id, feature_name)
+        logger.info("Feature effects result: %d points", len(data.get("partialDependence", [])))
+        return FeatureEffectsResponse(**data)
+    except Exception as e:
+        logger.error("Feature effects failed: %s", e, exc_info=True)
+        raise
 
 
 @insights_router.get(

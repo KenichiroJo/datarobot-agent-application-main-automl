@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { FileText, BarChart3, MessageSquare, ArrowRight } from 'lucide-react';
+import { FileText, BarChart3, ArrowRight } from 'lucide-react';
 
 const features = [
   {
@@ -13,15 +13,8 @@ const features = [
     to: '/insights',
     icon: BarChart3,
     title: 'モデルインサイト',
-    description: 'Feature Impact、ROC曲線、Lift Chart等でモデル性能をビジュアル分析します。',
+    description: 'Feature Impact、ROC曲線、Lift Chart等でモデル性能をビジュアル分析。AIアシスタントとも対話できます。',
     color: 'bg-emerald-500/10 text-emerald-500',
-  },
-  {
-    to: '/chat',
-    icon: MessageSquare,
-    title: '対話型分析',
-    description: 'AIアシスタントとの対話でモデル結果を深堀り、コンテンツを生成します。',
-    color: 'bg-violet-500/10 text-violet-500',
   },
 ];
 
@@ -38,7 +31,7 @@ export function LandingPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-3xl">
         {features.map((f) => (
           <Link
             key={f.to}
