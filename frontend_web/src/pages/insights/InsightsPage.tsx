@@ -6,7 +6,7 @@ import { ROCCurveChart } from '@/components/insights/ROCCurveChart';
 import { LiftChartComponent } from '@/components/insights/LiftChartComponent';
 import { ConfusionMatrixGrid } from '@/components/insights/ConfusionMatrixGrid';
 import { FeatureEffectsChart } from '@/components/insights/FeatureEffectsChart';
-import { SideChat } from '@/components/shared/SideChat';
+import { InlineChat } from '@/components/insights/InlineChat';
 import { useAppConfig } from '@/api/config/hooks';
 import {
   useAccuracy,
@@ -16,11 +16,6 @@ import {
   useLiftChart,
   useROCCurve,
 } from '@/api/insights/hooks';
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
 
 export function InsightsPage() {
   const { data: config } = useAppConfig();
@@ -38,23 +33,8 @@ export function InsightsPage() {
     selectedFeature,
   );
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-
   const handleFeatureClick = useCallback((featureName: string) => {
     setSelectedFeature(featureName);
-  }, []);
-
-  const handleChatSend = useCallback((message: string) => {
-    setChatMessages((prev) => [...prev, { role: 'user', content: message }]);
-    setTimeout(() => {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'チャット機能は `/chat` ページでフル機能をご利用いただけます。',
-        },
-      ]);
-    }, 500);
   }, []);
 
   return (
@@ -112,10 +92,11 @@ export function InsightsPage() {
               )}
             </div>
           )}
+
+          {/* Inline Chat */}
+          <InlineChat />
         </div>
       </DashboardLayout>
-
-      <SideChat messages={chatMessages} onSend={handleChatSend} />
     </>
   );
 }

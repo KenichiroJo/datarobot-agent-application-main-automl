@@ -3,14 +3,12 @@ import {
   LayoutDashboard,
   FileText,
   BarChart3,
-  MessageSquare,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'ホーム' },
   { to: '/content', icon: FileText, label: '予測コンテンツ' },
   { to: '/insights', icon: BarChart3, label: 'モデルインサイト' },
-  { to: '/chat', icon: MessageSquare, label: 'チャット' },
 ];
 
 export function NavigationSidebar() {
