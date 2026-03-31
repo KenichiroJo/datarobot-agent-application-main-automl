@@ -38,6 +38,7 @@ export function InlineChat() {
       const body = {
         threadId,
         runId,
+        state: '',
         messages: [{ id: uuid(), role: 'user', content: text }],
         tools: [],
         context: [],

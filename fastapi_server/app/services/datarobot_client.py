@@ -139,6 +139,26 @@ class DataRobotClient:
         source: str = "validation",
     ) -> dict[str, Any]:
         """Get confusion matrix by finding the closest threshold in the ROC data."""
+        _empty = {
+            "threshold": threshold,
+            "source": source,
+            "classes": ["0", "1"],
+            "matrix": [[0, 0], [0, 0]],
+            "metrics": {"accuracy": 0, "precision": 0, "recall": 0, "f1": 0},
+        }
+        try:
+            return self._compute_confusion_matrix(project_id, model_id, threshold, source)
+        except Exception as e:
+            logger.error("get_confusion_matrix failed entirely: %s", e, exc_info=True)
+            return _empty
+
+    def _compute_confusion_matrix(
+        self,
+        project_id: str,
+        model_id: str,
+        threshold: float = 0.5,
+        source: str = "validation",
+    ) -> dict[str, Any]:
         roc_points: list[dict] = []
         pos_total = 0
         neg_total = 0
@@ -149,22 +169,24 @@ class DataRobotClient:
                 f"projects/{project_id}/models/{model_id}/rocCurve/{source}"
             )
             roc_points = data.get("rocPoints", [])
-            pos_total = data.get("positiveClassPredictions", 0) or 0
-            neg_total = data.get("negativeClassPredictions", 0) or 0
+            pos_total = int(data.get("positiveClassPredictions", 0) or 0)
+            neg_total = int(data.get("negativeClassPredictions", 0) or 0)
             logger.info("CM REST: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
         except Exception as e:
             logger.warning("ROC REST API failed, trying SDK: %s", e)
 
-        # Fallback to SDK
+        # Fallback to SDK — convert to plain dicts for uniform access
         if not roc_points:
             try:
                 model = self._get_model(project_id, model_id)
                 roc = model.get_roc_curve(source)
-                roc_points = roc.roc_points
-                pos_total = getattr(roc, "positive_class_predictions", 0) or 0
-                neg_total = getattr(roc, "negative_class_predictions", 0) or 0
+                raw_pts = roc.roc_points
+                roc_points = [dict(pt) if not isinstance(pt, dict) else pt for pt in raw_pts]
+                pos_total = int(getattr(roc, "positive_class_predictions", 0) or 0)
+                neg_total = int(getattr(roc, "negative_class_predictions", 0) or 0)
+                logger.info("CM SDK: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
             except Exception as e:
-                logger.error("ROC SDK also failed: %s", e)
+                logger.error("ROC SDK also failed: %s", e, exc_info=True)
 
         if not roc_points:
             return {
@@ -175,23 +197,32 @@ class DataRobotClient:
                 "metrics": {"accuracy": 0, "precision": 0, "recall": 0, "f1": 0},
             }
 
-        # Find the closest threshold point
-        closest = min(roc_points, key=lambda pt: abs(pt.get("threshold", 0) - threshold))
+        def _get(d: dict, *keys: str, default: Any = 0) -> Any:
+            for k in keys:
+                v = d.get(k)
+                if v is not None:
+                    return v
+            return default
 
-        # Extract counts - try both camelCase (REST) and snake_case (SDK)
-        tp = closest.get("truePositiveCount", closest.get("true_positive_count", 0)) or 0
-        fp = closest.get("falsePositiveCount", closest.get("false_positive_count", 0)) or 0
-        tn = closest.get("trueNegativeCount", closest.get("true_negative_count", 0)) or 0
-        fn = closest.get("falseNegativeCount", closest.get("false_negative_count", 0)) or 0
+        # Find the closest threshold point
+        closest = min(roc_points, key=lambda pt: abs(float(_get(pt, "threshold", default=0)) - threshold))
+        logger.info("CM closest point keys: %s", list(closest.keys()) if isinstance(closest, dict) else type(closest))
+
+        # Extract counts — try camelCase (REST) and snake_case (SDK)
+        tp = int(_get(closest, "truePositiveCount", "true_positive_count", default=0))
+        fp = int(_get(closest, "falsePositiveCount", "false_positive_count", default=0))
+        tn = int(_get(closest, "trueNegativeCount", "true_negative_count", default=0))
+        fn = int(_get(closest, "falseNegativeCount", "false_negative_count", default=0))
 
         # Compute from rates if counts are zero
         if tp + fp + tn + fn == 0 and (pos_total or neg_total):
-            tpr = closest.get("truePositiveRate", closest.get("true_positive_rate", 0)) or 0
-            fpr = closest.get("falsePositiveRate", closest.get("false_positive_rate", 0)) or 0
+            tpr = float(_get(closest, "truePositiveRate", "true_positive_rate", default=0))
+            fpr = float(_get(closest, "falsePositiveRate", "false_positive_rate", default=0))
             tp = round(tpr * pos_total)
             fn = pos_total - tp
             fp = round(fpr * neg_total)
             tn = neg_total - fp
+            logger.info("CM computed from rates: tp=%d fp=%d tn=%d fn=%d", tp, fp, tn, fn)
 
         total = tp + fp + tn + fn
         accuracy = (tp + tn) / total if total > 0 else 0
@@ -200,10 +231,10 @@ class DataRobotClient:
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
 
         return {
-            "threshold": closest.get("threshold", threshold),
+            "threshold": float(_get(closest, "threshold", default=threshold)),
             "source": source,
             "classes": ["0", "1"],
-            "matrix": [[tn, fp], [fn, tp]],
+            "matrix": [[int(tn), int(fp)], [int(fn), int(tp)]],
             "metrics": {
                 "accuracy": round(accuracy, 4),
                 "precision": round(precision, 4),

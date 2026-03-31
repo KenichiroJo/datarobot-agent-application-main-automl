@@ -27,7 +27,7 @@ export function InsightsPage() {
   const { data: lift, isLoading: loadingLift } = useLiftChart(deploymentId);
 
   const [cmThreshold, setCmThreshold] = useState(0.5);
-  const { data: confusion, isLoading: loadingCM } = useConfusionMatrix(deploymentId, cmThreshold);
+  const { data: confusion, isLoading: loadingCM, error: cmError } = useConfusionMatrix(deploymentId, cmThreshold);
 
   const [selectedFeature, setSelectedFeature] = useState('');
   const { data: featureEffects, isLoading: loadingFE } = useFeatureEffects(
@@ -77,6 +77,7 @@ export function InsightsPage() {
             <ConfusionMatrixGrid
               data={confusion}
               loading={loadingCM}
+              error={cmError instanceof Error ? cmError.message : cmError ? String(cmError) : undefined}
               threshold={cmThreshold}
               onThresholdChange={handleThresholdSelect}
             />

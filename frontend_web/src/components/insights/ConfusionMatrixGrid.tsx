@@ -4,21 +4,24 @@ import type { ConfusionMatrixResponse } from '@/api/insights/types';
 interface Props {
   data?: ConfusionMatrixResponse;
   loading?: boolean;
+  error?: string;
   threshold?: number;
   onThresholdChange?: (threshold: number) => void;
 }
 
-export function ConfusionMatrixGrid({ data, loading, threshold, onThresholdChange }: Props) {
+export function ConfusionMatrixGrid({ data, loading, error, threshold, onThresholdChange }: Props) {
+  if (error) return <ChartCard title="Confusion Matrix" loading={false}><div className="text-xs text-red-500 p-4">Error: {error}</div></ChartCard>;
   if (!data) return <ChartCard title="Confusion Matrix" loading={loading}><div /></ChartCard>;
 
   const [[tn, fp], [fn, tp]] = data.matrix;
   const total = tn + fp + fn + tp;
+  const pct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(1) : '0.0';
 
   const cells = [
-    { label: 'TN', value: tn, pct: ((tn / total) * 100).toFixed(1), bg: 'bg-blue-100 dark:bg-blue-900/30' },
-    { label: 'FP', value: fp, pct: ((fp / total) * 100).toFixed(1), bg: 'bg-red-100 dark:bg-red-900/30' },
-    { label: 'FN', value: fn, pct: ((fn / total) * 100).toFixed(1), bg: 'bg-orange-100 dark:bg-orange-900/30' },
-    { label: 'TP', value: tp, pct: ((tp / total) * 100).toFixed(1), bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
+    { label: 'TN', value: tn, pct: pct(tn), bg: 'bg-blue-100 dark:bg-blue-900/30' },
+    { label: 'FP', value: fp, pct: pct(fp), bg: 'bg-red-100 dark:bg-red-900/30' },
+    { label: 'FN', value: fn, pct: pct(fn), bg: 'bg-orange-100 dark:bg-orange-900/30' },
+    { label: 'TP', value: tp, pct: pct(tp), bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
   ];
 
   return (
