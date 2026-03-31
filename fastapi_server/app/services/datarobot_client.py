@@ -152,6 +152,18 @@ class DataRobotClient:
             logger.error("get_confusion_matrix failed entirely: %s", e, exc_info=True)
             return _empty
 
+    @staticmethod
+    def _safe_int(val: Any) -> int:
+        """Convert value to int, handling lists and None."""
+        if val is None:
+            return 0
+        if isinstance(val, list):
+            return len(val) if val else 0
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return 0
+
     def _compute_confusion_matrix(
         self,
         project_id: str,
@@ -163,30 +175,30 @@ class DataRobotClient:
         pos_total = 0
         neg_total = 0
 
-        # Try REST API first
+        # Try SDK first — it gives clean Python dicts
         try:
-            data = self._api_get(
-                f"projects/{project_id}/models/{model_id}/rocCurve/{source}"
-            )
-            roc_points = data.get("rocPoints", [])
-            pos_total = int(data.get("positiveClassPredictions", 0) or 0)
-            neg_total = int(data.get("negativeClassPredictions", 0) or 0)
-            logger.info("CM REST: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
+            model = self._get_model(project_id, model_id)
+            roc = model.get_roc_curve(source)
+            raw_pts = roc.roc_points
+            roc_points = [dict(pt) if not isinstance(pt, dict) else pt for pt in raw_pts]
+            pos_total = self._safe_int(getattr(roc, "positive_class_predictions", 0))
+            neg_total = self._safe_int(getattr(roc, "negative_class_predictions", 0))
+            logger.info("CM SDK: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
         except Exception as e:
-            logger.warning("ROC REST API failed, trying SDK: %s", e)
+            logger.warning("ROC SDK failed, trying REST: %s", e)
 
-        # Fallback to SDK — convert to plain dicts for uniform access
+        # Fallback to REST API
         if not roc_points:
             try:
-                model = self._get_model(project_id, model_id)
-                roc = model.get_roc_curve(source)
-                raw_pts = roc.roc_points
-                roc_points = [dict(pt) if not isinstance(pt, dict) else pt for pt in raw_pts]
-                pos_total = int(getattr(roc, "positive_class_predictions", 0) or 0)
-                neg_total = int(getattr(roc, "negative_class_predictions", 0) or 0)
-                logger.info("CM SDK: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
+                data = self._api_get(
+                    f"projects/{project_id}/models/{model_id}/rocCurve/{source}"
+                )
+                roc_points = data.get("rocPoints", [])
+                pos_total = self._safe_int(data.get("positiveClassPredictions", 0))
+                neg_total = self._safe_int(data.get("negativeClassPredictions", 0))
+                logger.info("CM REST: got %d roc_points, pos=%d neg=%d", len(roc_points), pos_total, neg_total)
             except Exception as e:
-                logger.error("ROC SDK also failed: %s", e, exc_info=True)
+                logger.error("ROC REST also failed: %s", e, exc_info=True)
 
         if not roc_points:
             return {
@@ -208,21 +220,39 @@ class DataRobotClient:
         closest = min(roc_points, key=lambda pt: abs(float(_get(pt, "threshold", default=0)) - threshold))
         logger.info("CM closest point keys: %s", list(closest.keys()) if isinstance(closest, dict) else type(closest))
 
-        # Extract counts — try camelCase (REST) and snake_case (SDK)
-        tp = int(_get(closest, "truePositiveCount", "true_positive_count", default=0))
-        fp = int(_get(closest, "falsePositiveCount", "false_positive_count", default=0))
-        tn = int(_get(closest, "trueNegativeCount", "true_negative_count", default=0))
-        fn = int(_get(closest, "falseNegativeCount", "false_negative_count", default=0))
+        # Extract counts — try Count, Score, and snake_case variants
+        tp = self._safe_int(_get(closest, "truePositiveCount", "true_positive_count",
+                                 "truePositiveScore", "true_positive_score", default=0))
+        fp = self._safe_int(_get(closest, "falsePositiveCount", "false_positive_count",
+                                 "falsePositiveScore", "false_positive_score", default=0))
+        tn = self._safe_int(_get(closest, "trueNegativeCount", "true_negative_count",
+                                 "trueNegativeScore", "true_negative_score", default=0))
+        fn = self._safe_int(_get(closest, "falseNegativeCount", "false_negative_count",
+                                 "falseNegativeScore", "false_negative_score", default=0))
 
         # Compute from rates if counts are zero
-        if tp + fp + tn + fn == 0 and (pos_total or neg_total):
+        if tp + fp + tn + fn == 0:
             tpr = float(_get(closest, "truePositiveRate", "true_positive_rate", default=0))
             fpr = float(_get(closest, "falsePositiveRate", "false_positive_rate", default=0))
-            tp = round(tpr * pos_total)
-            fn = pos_total - tp
-            fp = round(fpr * neg_total)
-            tn = neg_total - fp
-            logger.info("CM computed from rates: tp=%d fp=%d tn=%d fn=%d", tp, fp, tn, fn)
+
+            # Estimate total samples from fractionPredictedAsPositive if pos/neg totals missing
+            if pos_total == 0 and neg_total == 0:
+                frac_pos = float(_get(closest, "fractionPredictedAsPositive",
+                                      "fraction_predicted_as_positive", default=0))
+                if frac_pos > 0 and frac_pos < 1:
+                    # Use a reference sample size — DataRobot validation sets are typically ~1000-2000
+                    n_samples = 1000
+                    pos_total = round(n_samples * frac_pos)
+                    neg_total = n_samples - pos_total
+                    logger.info("CM estimated totals from fractionPredictedAsPositive=%.4f: pos=%d neg=%d",
+                                frac_pos, pos_total, neg_total)
+
+            if pos_total or neg_total:
+                tp = round(tpr * pos_total)
+                fn = pos_total - tp
+                fp = round(fpr * neg_total)
+                tn = neg_total - fp
+                logger.info("CM computed from rates: tp=%d fp=%d tn=%d fn=%d", tp, fp, tn, fn)
 
         total = tp + fp + tn + fn
         accuracy = (tp + tn) / total if total > 0 else 0

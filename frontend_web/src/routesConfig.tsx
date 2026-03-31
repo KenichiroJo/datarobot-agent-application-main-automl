@@ -1,10 +1,6 @@
 import { PATHS } from '@/constants/path.ts';
 import { lazy } from 'react';
 import { Navigate } from 'react-router-dom';
-import { SettingsLayout } from './pages/SettingsLayout';
-import { ChatPage } from './pages/Chat.tsx';
-import { EmptyStatePage } from './pages/EmptyState.tsx';
-import { MainLayout } from './components/layout/MainLayout.tsx';
 import { AppLayout } from './components/layout/AppLayout.tsx';
 import { LandingPage } from './pages/Landing.tsx';
 import { ContentPage } from './pages/content/ContentPage.tsx';
@@ -20,18 +16,6 @@ export const appRoutes = [
       { path: PATHS.HOME, element: <LandingPage /> },
       { path: PATHS.CONTENT, element: <ContentPage /> },
       { path: PATHS.INSIGHTS, element: <InsightsPage /> },
-      {
-        element: <MainLayout />,
-        children: [
-          { path: PATHS.CHAT_EMPTY, element: <EmptyStatePage /> },
-          { path: PATHS.CHAT, element: <ChatPage /> },
-          {
-            path: PATHS.SETTINGS.ROOT,
-            element: <SettingsLayout />,
-            children: [{ path: 'sources', element: <Navigate to={PATHS.SETTINGS.ROOT} replace /> }],
-          },
-        ],
-      },
       { path: '*', element: <Navigate to={PATHS.HOME} replace /> },
     ],
   },
