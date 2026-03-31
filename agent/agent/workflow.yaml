@@ -1,0 +1,69 @@
+---
+# Copyright 2025 DataRobot, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+general:
+  front_end:
+    _type: dragent_fastapi
+    # Step adaptor is not necessary for custom agents
+    step_adaptor:
+      mode: 'off'
+    # If you don't want your agent to expose A2A endpoints, remove the following block.
+    a2a:
+      server:
+        name: Predictive AutoML Agent
+        description: >
+          DataRobot二値分類モデルのインサイト分析と予測コンテンツ生成を行うエージェント。
+          モデル全体のFeature Impact/ROC/Lift等の深堀り分析、個別顧客の予測と説明、
+          承認/却下レター・説明文書・審査コメントの自動生成に対応。
+      skills:
+        - id: model_analysis
+          name: Model Analysis
+          description: モデル全体のインサイト分析（Feature Impact, ROC, Lift, Confusion Matrix等）
+          tags: []
+          examples:
+            - このモデルのFeature Impactを教えてください
+            - ROC曲線とAUCを分析して
+        - id: customer_prediction
+          name: Customer Prediction
+          description: 個別顧客の貸倒リスク予測と特徴量説明
+          tags: []
+          examples:
+            - この顧客のリスクを予測して
+            - データセットから顧客を選んで予測して
+        - id: content_generation
+          name: Content Generation
+          description: 予測結果に基づく承認/却下レター、顧客説明、審査コメントの生成
+          tags: []
+          examples:
+            - この顧客の承認レターを作成して
+            - 社内審査コメントを書いて
+# To connect this agent to a remote A2A agent, uncomment the block below and add the
+# function group name to the workflow's tool_names list.
+# function_groups:
+#   remote_agent:
+#     _type: authenticated_a2a_client
+#     url: "https://app.datarobot.com/api/v2/deployments/<deployment-id>/directAccess/a2a/"
+#     auth_provider: datarobot_auth
+llms:
+  datarobot_llm:
+    _type: datarobot-llm-component
+workflow:
+  _type: langgraph_agent
+  llm_name: datarobot_llm
+  description: LangGraph planner/writer agent
+  # tool_names:
+  #   - remote_agent
+authentication:
+  datarobot_auth:
+    _type: datarobot_api_key
