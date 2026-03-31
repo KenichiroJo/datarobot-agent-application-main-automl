@@ -143,7 +143,7 @@ if __name__ == "__main__":
             (os.path.join(app_dir, "resources"), "app.resources"),
         ],
         transport="streamable-http",
-        load_native_mcp_tools=True,
+        load_native_mcp_tools=False,
     )
 
     try:
