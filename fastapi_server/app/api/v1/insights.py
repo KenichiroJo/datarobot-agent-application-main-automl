@@ -35,7 +35,7 @@ def _get_ids(client: DataRobotClient, deployment_id: str) -> tuple[str, str]:
 async def get_deployment_info(
     deployment_id: str, request: Request
 ) -> DeploymentInfoResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     data = client.get_deployment_info(deployment_id)
     return DeploymentInfoResponse(**data)
@@ -47,7 +47,7 @@ async def get_deployment_info(
 async def get_feature_impact(
     deployment_id: str, request: Request
 ) -> FeatureImpactResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_feature_impact(project_id, model_id)
@@ -60,7 +60,7 @@ async def get_roc_curve(
     request: Request,
     source: str = Query(default="validation"),
 ) -> ROCCurveResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_roc_curve(project_id, model_id, source)
@@ -73,7 +73,7 @@ async def get_lift_chart(
     request: Request,
     source: str = Query(default="validation"),
 ) -> LiftChartResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_lift_chart(project_id, model_id, source)
@@ -89,7 +89,7 @@ async def get_confusion_matrix(
     threshold: float = Query(default=0.5, ge=0.0, le=1.0),
     source: str = Query(default="validation"),
 ) -> ConfusionMatrixResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_confusion_matrix(project_id, model_id, threshold, source)
@@ -100,7 +100,7 @@ async def get_confusion_matrix(
 async def get_accuracy(
     deployment_id: str, request: Request
 ) -> AccuracyResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_accuracy_metrics(project_id, model_id)
@@ -116,7 +116,7 @@ async def get_feature_effects(
     feature_name: str,
     request: Request,
 ) -> FeatureEffectsResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_feature_effects(project_id, model_id, feature_name)
@@ -132,7 +132,7 @@ async def get_partial_dependence(
     feature_name: str,
     request: Request,
 ) -> PartialDependenceResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_partial_dependence(project_id, model_id, feature_name)
@@ -145,7 +145,7 @@ async def get_partial_dependence(
 async def get_word_cloud(
     deployment_id: str, request: Request
 ) -> WordCloudResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client = _get_client(request)
     project_id, model_id = _get_ids(client, deployment_id)
     data = client.get_word_cloud(project_id, model_id)

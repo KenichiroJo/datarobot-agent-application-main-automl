@@ -19,7 +19,7 @@ async def get_dataset_records(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> DatasetRecordsResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client: DataRobotClient = request.app.state.deps.datarobot_client
     data = client.get_dataset_records(dataset_id, offset, limit)
     return DatasetRecordsResponse(**data)
@@ -30,7 +30,7 @@ async def get_dataset_schema(
     dataset_id: str,
     request: Request,
 ) -> DatasetSchemaResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client: DataRobotClient = request.app.state.deps.datarobot_client
     data = client.get_dataset_schema(dataset_id)
     return DatasetSchemaResponse(**data)

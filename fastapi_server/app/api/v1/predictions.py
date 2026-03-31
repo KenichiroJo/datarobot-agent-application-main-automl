@@ -17,7 +17,7 @@ async def create_prediction(
     body: PredictionRequest,
     request: Request,
 ) -> PredictionResponse:
-    await must_get_auth_ctx(request)
+    must_get_auth_ctx(request)
     client: DataRobotClient = request.app.state.deps.datarobot_client
     data = client.predict(
         deployment_id=body.deployment_id,
