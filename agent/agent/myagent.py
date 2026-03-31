@@ -59,6 +59,11 @@ class MyAgent(LangGraphAgent):
             self.model = self.default_model
 
     @property
+    def mcp_tools(self) -> list[BaseTool]:
+        """Filter out tavily tools since no API key is configured."""
+        return [t for t in super().mcp_tools if "tavily" not in t.name.lower()]
+
+    @property
     def workflow(self) -> StateGraph[MessagesState]:
         langgraph_workflow = StateGraph[
             MessagesState, None, MessagesState, MessagesState
