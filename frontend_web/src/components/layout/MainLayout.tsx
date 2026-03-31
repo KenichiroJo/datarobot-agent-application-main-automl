@@ -45,7 +45,7 @@ export function MainLayout() {
   }, [chats, isLoadingChats, isChat, chatId]);
 
   return (
-    <div className="flex flex-row w-full h-svh">
+    <div className="flex flex-row flex-1 h-full overflow-hidden">
       <ChatSidebar
         isLoading={isLoadingChats}
         chatId={chatId}

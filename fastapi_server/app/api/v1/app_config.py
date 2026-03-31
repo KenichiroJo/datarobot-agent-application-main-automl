@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import APIRouter, Request
 
@@ -14,7 +15,9 @@ async def get_app_config(request: Request) -> dict:
     """Return application configuration for the frontend."""
     await must_get_auth_ctx(request)
     config = request.app.state.deps.config
+    deployment_id = config.prediction_deployment_id or os.environ.get("PREDICTION_DEPLOYMENT_ID", "")
+    dataset_id = config.scoring_dataset_id or os.environ.get("SCORING_DATASET_ID", "")
     return {
-        "deploymentId": config.prediction_deployment_id,
-        "datasetId": config.scoring_dataset_id,
+        "deploymentId": deployment_id,
+        "datasetId": dataset_id,
     }
